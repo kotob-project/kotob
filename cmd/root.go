@@ -1,5 +1,5 @@
 /*
-Copyright © 2026 NAME HERE <EMAIL ADDRESS>
+Copyright © 2026 kotob-project
 */
 package cmd
 
@@ -19,7 +19,6 @@ var (
 	asJson   bool
 )
 
-// rootCmd represents the base command when called without any subcommands
 var rootCmd = &cobra.Command{
 	Use:   "kotob [text]",
 	Short: "A lightweight CLI translation tool powered by Gemini API",
@@ -28,17 +27,11 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// テスト用に引数とフラグを表示してみる
 		fmt.Printf("翻訳対象: %s\n", args[0])
 		fmt.Printf("出力言語: %s\n", toLang)
 	},
-	// Uncomment the following line if your bare application
-	// has an action associated with it:
-	// Run: func(cmd *cobra.Command, args []string) { },
 }
 
-// Execute adds all child commands to the root command and sets flags appropriately.
-// This is called by main.main(). It only needs to happen once to the rootCmd.
 func Execute() {
 	err := rootCmd.Execute()
 	if err != nil {
