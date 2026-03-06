@@ -122,7 +122,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&model, "model", "m", "gemini-2.5-flash-lite", "AI model to use")
 	rootCmd.Flags().StringVarP(&system, "system", "s", "", "custom system prompt for the AI")
 	rootCmd.Flags().BoolVarP(&asJson, "json", "j", false, "output result as a JSON object")
-	rootCmd.Flags().BoolVarP(&noStream, "no-stream", "", false, "Outputs translations in bulk")
+	rootCmd.Flags().BoolVarP(&noStream, "no-stream", "S", false, "Outputs translations in bulk")
 
 	cobra.OnInitialize(initConfig)
 }
