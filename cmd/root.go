@@ -16,11 +16,15 @@ limitations under the License.
 package cmd
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
+
+	"kotob/pkg/translate"
 )
 
 var (
@@ -30,6 +34,7 @@ var (
 	model    string
 	system   string
 	asJson   bool
+	noStream bool
 )
 
 var rootCmd = &cobra.Command{
@@ -40,7 +45,37 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 
 	Args: cobra.MinimumNArgs(1),
 	Run: func(cmd *cobra.Command, args []string) {
-		// TODO: 翻訳の呼び出し
+		// チェック
+		if len(args) < 1 {
+			fmt.Fprintln(os.Stderr, "Error: Please input the text to be translated.")
+			os.Exit(1)
+		}
+
+		if apiKey == "" {
+			fmt.Fprintln(os.Stderr, "Error: API key is not configured.")
+			os.Exit(1)
+		}
+
+		//翻訳準備
+		ctx := context.Background()
+		client, err := translate.NewClient(ctx, apiKey, model)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			os.Exit(1)
+		}
+
+		//翻訳開始
+
+		if !noStream {
+			err = client.TranslateStream(ctx, os.Stdout, args[0], fromLang, toLang, system)
+		} else {
+			result, err := client.Translate(ctx, args[0], fromLang, toLang, system)
+			if err == nil {
+				fmt.Print(result)
+			}
+		}
+
+		fmt.Println()
 	},
 }
 
@@ -56,9 +91,10 @@ func init() {
 	rootCmd.Flags().StringVarP(&toLang, "to", "t", "", "target language (defaults to en ⇔ ja if unspecified)")
 	rootCmd.Flags().StringVarP(&fromLang, "from", "f", "auto", "source language (default auto)")
 	rootCmd.Flags().StringVarP(&apiKey, "api-key", "k", "", "Gemini API key for the session")
-	rootCmd.Flags().StringVarP(&model, "model", "m", "gemini-2.0-flash-lite", "AI model to use")
+	rootCmd.Flags().StringVarP(&model, "model", "m", "gemini-2.5-flash-lite", "AI model to use")
 	rootCmd.Flags().StringVarP(&system, "system", "s", "", "custom system prompt for the AI")
 	rootCmd.Flags().BoolVarP(&asJson, "json", "j", false, "output result as a JSON object")
+	rootCmd.Flags().BoolVarP(&noStream, "no-stream", "", false, "Outputs translations in bulk")
 
 	cobra.OnInitialize(initConfig)
 }
@@ -82,7 +118,7 @@ func initConfig() {
 	if apiKey == "" {
 		apiKey = viper.GetString("api-key")
 	}
-	if model == "" || model == "gemini-2.0-flash-lite" {
+	if model == "" || model == "gemini-2.5-flash-lite" {
 		vModel := viper.GetString("model")
 		if vModel != "" {
 			model = vModel
