@@ -1,0 +1,30 @@
+version: 2
+project_name: kotob
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - windows
+      - darwin
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - format: binary
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+    allow_different_binary_count: true
+
+release:
+  draft: true
+  replace_existing: true
+  prerelease: auto
+
+files:
+  - none*
