@@ -52,16 +52,16 @@ var rootCmd = &cobra.Command{
 	Long: `Kotob is a lightweight CLI translation tool built with Go,
 leveraging the Google Gemini API for fast and accurate translations.`,
 
-	Args: cobra.MinimumNArgs(1),
+	Args: cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
 		// チェック
 		if len(args) < 1 {
-			fmt.Fprintln(os.Stderr, "Error: Please input the text to be translated.")
+			fmt.Fprintln(os.Stderr, "ERROR: Please input the text to be translated.")
 			os.Exit(1)
 		}
 
 		if apiKey == "" {
-			fmt.Fprintln(os.Stderr, "Error: API key is not configured.")
+			fmt.Fprintln(os.Stderr, "ERROR: API key is not configured.")
 			os.Exit(1)
 		}
 
@@ -69,7 +69,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 		ctx := context.Background()
 		client, err := translate.NewClient(ctx, apiKey, model)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 			os.Exit(1)
 		}
 
@@ -78,7 +78,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 		if asJson || noStream {
 			result, err := client.Translate(ctx, args[0], fromLang, toLang, system)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 				os.Exit(1)
 			}
 			if asJson {
@@ -98,7 +98,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 		} else {
 			err = client.TranslateStream(ctx, os.Stdout, args[0], fromLang, toLang, system)
 			if err != nil {
-				fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 				os.Exit(1)
 			}
 		}
