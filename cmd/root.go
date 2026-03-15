@@ -16,9 +16,11 @@ limitations under the License.
 package cmd
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -34,6 +36,7 @@ var (
 	apiKey   string
 	model    string
 	system   string
+	filepath string
 	asJson   bool
 	noStream bool
 )
@@ -54,18 +57,72 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 
 	Args: cobra.ArbitraryArgs,
 	Run: func(cmd *cobra.Command, args []string) {
-		// チェック
-		if len(args) < 1 {
-			fmt.Fprintln(os.Stderr, "ERROR: Please input the text to be translated.")
-			os.Exit(1)
+		var inputText string
+
+		if strings.Contains(fromLang, ".") || strings.Contains(fromLang, "/") || strings.Contains(fromLang, "\\") {
+			fmt.Fprintln(os.Stderr, "WARNING: -f is for source language. Did you mean -F for file path?")
 		}
 
+		// ファイル読み込み
+		if filepath != "" {
+
+			// 読み込み
+			file, err := os.Open(filepath)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
+				os.Exit(1)
+			}
+			defer file.Close()
+
+			// ディレクトリチェック
+			info, _ := file.Stat()
+			if info.IsDir() {
+				fmt.Fprintf(os.Stderr, "ERROR: %q is a directory.\n", filepath)
+				os.Exit(1)
+			}
+
+			// バイナリチェック
+			buffer := make([]byte, 1024)
+			n, _ := file.Read(buffer)
+
+			if bytes.IndexByte(buffer[:n], 0) != -1 {
+				fmt.Fprintln(os.Stderr, "ERROR: Binary files are not supported.")
+				os.Exit(1)
+			}
+
+			// 読み切り
+			remaining, _ := io.ReadAll(file)
+			data := append(buffer[:n], remaining...)
+
+			if len(data) > 1024*1024 {
+				fmt.Fprintln(os.Stderr, "WARNING: File is very large. It may take some time or reach API limits.")
+			}
+
+			inputText = string(data)
+
+			if len(args) > 0 {
+				fmt.Fprintln(os.Stderr, "WARNING: Both file and direct text provided. Using file content.")
+			}
+		} else {
+			if len(args) < 1 {
+				fmt.Fprintln(os.Stderr, "ERROR: Please input the text to be translated or specify a file with -F.")
+				os.Exit(1)
+			}
+			inputText = args[0]
+		}
+
+		// チェック
 		if apiKey == "" {
 			fmt.Fprintln(os.Stderr, "ERROR: API key is not configured.")
 			os.Exit(1)
 		}
 
-		//翻訳準備
+		if strings.TrimSpace(inputText) == "" {
+			fmt.Fprintln(os.Stderr, "ERROR: Input text is empty.")
+			os.Exit(1)
+		}
+
+		// 翻訳準備
 		ctx := context.Background()
 		client, err := translate.NewClient(ctx, apiKey, model)
 		if err != nil {
@@ -73,10 +130,9 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 			os.Exit(1)
 		}
 
-		//翻訳開始
-
+		// 翻訳開始
 		if asJson || noStream {
-			result, err := client.Translate(ctx, args[0], fromLang, toLang, system)
+			result, err := client.Translate(ctx, inputText, fromLang, toLang, system)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 				os.Exit(1)
@@ -85,7 +141,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 				resp := TranslationResponse{
 					Source:     fromLang,
 					Target:     toLang,
-					Input:      args[0],
+					Input:      inputText,
 					Translated: result,
 					Model:      model,
 				}
@@ -96,7 +152,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 				fmt.Print(result)
 			}
 		} else {
-			err = client.TranslateStream(ctx, os.Stdout, args[0], fromLang, toLang, system)
+			err = client.TranslateStream(ctx, os.Stdout, inputText, fromLang, toLang, system)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 				os.Exit(1)
@@ -122,6 +178,7 @@ func init() {
 	rootCmd.Flags().StringVarP(&model, "model", "m", "gemini-2.5-flash-lite", "AI model to use")
 	rootCmd.Flags().StringVarP(&system, "system", "s", "", "custom system prompt for the AI")
 	rootCmd.Flags().BoolVarP(&asJson, "json", "j", false, "output result as a JSON object")
+	rootCmd.Flags().StringVarP(&filepath, "file", "F", "", "path to the text file to translate")
 	rootCmd.Flags().BoolVarP(&noStream, "no-stream", "S", false, "Outputs translations in bulk")
 
 	cobra.OnInitialize(initConfig)
