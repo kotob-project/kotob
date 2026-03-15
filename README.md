@@ -85,6 +85,10 @@ kotobが参照するのは実行ディレクトリの `kotob.json` と `~/.confi
 kotob -t ja "Hello, world!"
 # こんにちは、世界！
 ```
+ファイルの読み込み
+```bash
+kotob -F ./test/message.txt
+```
 システムプロンプトの設定
 ```bash
 kotob -t ja -s "カジュアルに翻訳" "Hello! How are you?"
@@ -114,6 +118,7 @@ kotobの動作を制御するためのフラグです。
 | `-k` | `--api-key` | Gemini API key | - |
 | `-t` | `--to` | 翻訳先の言語 (Target language) | `Japanese` |
 | `-f` | `--from` | 翻訳元の言語 (Source language) | `auto` |
+| `-F` | `--file` | ファイルの読み込み| - |
 | `-s` | `--system` | AIへの指示/制約 (System Prompt) | - |
 | `-j` | `--json` | 出力結果を構造化データ(JSON)で取得 | `false` |
 | `-m` | `--model` | 使用するAIモデルの指定 | `gemini-2.5-flash-lite` |
@@ -130,3 +135,7 @@ kotobの動作を制御するためのフラグです。
 
 Licensed under the **Apache License, Version 2.0**.  
 See [LICENSE](./LICENSE) for the full license text.
+
+# Special Thanks
+
+**Tanahiro2010** : 仕様の相談、ベータテストへの協力
