@@ -138,4 +138,4 @@ See [LICENSE](./LICENSE) for the full license text.
 
 # Special Thanks
 
-**Tanahiro2010** : 仕様の相談、ベータテストへの協力
+**tanahiro2010** : 仕様の相談、ベータテストへの協力
