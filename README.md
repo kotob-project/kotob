@@ -8,7 +8,8 @@ CLI translation tool that converts to any language and format through GeminiAPI.
 * [準備 - Preparation](#準備---preparation)
 * [使い方 - Usage](#使い方---usage)
 * [フラグ - Flags](#フラグ---flags)
-* [ライセンス - License](#license)
+* [ライセンス - License](#ライセンス---license)
+* [Special Thanks](#special-thanks)
 
 # インストール - Installation
 ## Goを使用する場合 (For Go Users)
@@ -138,4 +139,4 @@ See [LICENSE](./LICENSE) for the full license text.
 
 # Special Thanks
 
-**Tanahiro2010** : 仕様の相談、ベータテストへの協力
+**tanahiro2010** : 仕様、リリースに関する相談、開発協力
