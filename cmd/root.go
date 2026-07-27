@@ -30,16 +30,28 @@ import (
 	"github.com/kotob-project/kotob/pkg/translate"
 )
 
-var (
-	toLang   string
-	fromLang string
-	apiKey   string
-	model    string
-	system   string
-	filepath string
-	asJson   bool
-	noStream bool
+const (
+	defaultModel          = "gemini-2.5-flash-lite"
+	defaultToLang         = "Japanese"
+	defaultFromLang       = "auto"
+	configName            = "kotob"
+	configType            = "json"
+	configDir             = "/.config/kotob"
+	envPrefix             = "KOTOB"
+	maxFileSize           = 1024 * 1024 // 1MB
+	binaryCheckBufferSize = 1024
 )
+
+type Config struct {
+	ToLang   string
+	FromLang string
+	APIKey   string
+	Model    string
+	System   string
+	Filepath string
+	AsJSON   bool
+	NoStream bool
+}
 
 type TranslationResponse struct {
 	Source     string `json:"source"`
@@ -56,177 +68,186 @@ var rootCmd = &cobra.Command{
 leveraging the Google Gemini API for fast and accurate translations.`,
 
 	Args: cobra.ArbitraryArgs,
-	Run: func(cmd *cobra.Command, args []string) {
-		var inputText string
+	RunE: func(cmd *cobra.Command, args []string) error {
+		cfg := buildConfig()
 
-		if strings.Contains(fromLang, ".") || strings.Contains(fromLang, "/") || strings.Contains(fromLang, "\\") {
-			fmt.Fprintln(os.Stderr, "WARNING: -f is for source language. Did you mean -F for file path?")
-		}
-
-		// ファイル読み込み
-		if filepath != "" {
-
-			// 読み込み
-			file, err := os.Open(filepath)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-				os.Exit(1)
-			}
-			defer file.Close()
-
-			// ディレクトリチェック
-			info, _ := file.Stat()
-			if info.IsDir() {
-				fmt.Fprintf(os.Stderr, "ERROR: %q is a directory.\n", filepath)
-				os.Exit(1)
-			}
-
-			// バイナリチェック
-			buffer := make([]byte, 1024)
-			n, _ := file.Read(buffer)
-
-			if bytes.IndexByte(buffer[:n], 0) != -1 {
-				fmt.Fprintln(os.Stderr, "ERROR: Binary files are not supported.")
-				os.Exit(1)
-			}
-
-			// 読み切り
-			remaining, _ := io.ReadAll(file)
-			data := append(buffer[:n], remaining...)
-
-			if len(data) > 1024*1024 {
-				fmt.Fprintln(os.Stderr, "WARNING: File is very large. It may take some time or reach API limits.")
-			}
-
-			inputText = string(data)
-
-			if len(args) > 0 {
-				fmt.Fprintln(os.Stderr, "WARNING: Both file and direct text provided. Using file content.")
-			}
-		} else {
-			if len(args) < 1 {
-				fmt.Fprintln(os.Stderr, "ERROR: Please input the text to be translated or specify a file with -F.")
-				os.Exit(1)
-			}
-			inputText = args[0]
-		}
-
-		// チェック
-		if apiKey == "" {
-			fmt.Fprintln(os.Stderr, "ERROR: API key is not configured.")
-			os.Exit(1)
-		}
-
-		if strings.TrimSpace(inputText) == "" {
-			fmt.Fprintln(os.Stderr, "ERROR: Input text is empty.")
-			os.Exit(1)
-		}
-
-		// 翻訳準備
-		ctx := context.Background()
-		client, err := translate.NewClient(ctx, apiKey, model)
+		inputText, err := readInputText(cfg.Filepath, args)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 
-		// 翻訳開始
-		if asJson || noStream {
-			result, err := client.Translate(ctx, inputText, fromLang, toLang, system)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-				os.Exit(1)
-			}
-			if asJson {
-				resp := TranslationResponse{
-					Source:     fromLang,
-					Target:     toLang,
-					Input:      inputText,
-					Translated: result,
-					Model:      model,
-				}
-				encoder := json.NewEncoder(os.Stdout)
-				encoder.SetIndent("", "  ")
-				encoder.Encode(resp)
-			} else {
-				fmt.Print(result)
-			}
-		} else {
-			err = client.TranslateStream(ctx, os.Stdout, inputText, fromLang, toLang, system)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
-				os.Exit(1)
-			}
+		if err := validateConfigAndInput(cfg, inputText); err != nil {
+			return err
 		}
 
-		fmt.Println()
+		ctx := context.Background()
+		return executeTranslation(ctx, cfg, inputText)
 	},
 }
 
 func Execute() {
-	err := rootCmd.Execute()
-	if err != nil {
+	if err := rootCmd.Execute(); err != nil {
+		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		os.Exit(1)
 	}
 }
 
 func init() {
-
-	rootCmd.Flags().StringVarP(&toLang, "to", "t", "", "target language (defaults to en ⇔ ja if unspecified)")
-	rootCmd.Flags().StringVarP(&fromLang, "from", "f", "auto", "source language (default auto)")
-	rootCmd.Flags().StringVarP(&apiKey, "api-key", "k", "", "Gemini API key for the session")
-	rootCmd.Flags().StringVarP(&model, "model", "m", "gemini-2.5-flash-lite", "AI model to use")
-	rootCmd.Flags().StringVarP(&system, "system", "s", "", "custom system prompt for the AI")
-	rootCmd.Flags().BoolVarP(&asJson, "json", "j", false, "output result as a JSON object")
-	rootCmd.Flags().StringVarP(&filepath, "file", "F", "", "path to the text file to translate")
-	rootCmd.Flags().BoolVarP(&noStream, "no-stream", "S", false, "Outputs translations in bulk")
+	rootCmd.Flags().StringP("to", "t", defaultToLang, "target language")
+	rootCmd.Flags().StringP("from", "f", defaultFromLang, "source language")
+	rootCmd.Flags().StringP("api-key", "k", "", "Gemini API key for the session")
+	rootCmd.Flags().StringP("model", "m", defaultModel, "AI model to use")
+	rootCmd.Flags().StringP("system", "s", "", "custom system prompt for the AI")
+	rootCmd.Flags().BoolP("json", "j", false, "output result as a JSON object")
+	rootCmd.Flags().StringP("file", "F", "", "path to the text file to translate")
+	rootCmd.Flags().BoolP("no-stream", "S", false, "Outputs translations in bulk")
 
 	cobra.OnInitialize(initConfig)
 }
 
 func initConfig() {
-	viper.SetEnvPrefix("KOTOB")
+	viper.SetEnvPrefix(envPrefix)
 	viper.AutomaticEnv()
 	viper.SetEnvKeyReplacer(strings.NewReplacer("-", "_"))
 
-	// 設定ファイル関連
-	viper.SetConfigName("kotob")
-	viper.SetConfigType("json")
+	viper.SetConfigName(configName)
+	viper.SetConfigType(configType)
 	viper.AddConfigPath(".")
 	if home, err := os.UserHomeDir(); err == nil {
-		viper.AddConfigPath(home + "/.config/kotob")
+		viper.AddConfigPath(home + configDir)
 	}
 
 	_ = viper.ReadInConfig()
 
-	// 補完処理
-	if apiKey == "" {
-		apiKey = viper.GetString("api-key")
-	}
-	if model == "" || model == "gemini-2.5-flash-lite" {
-		vModel := viper.GetString("model")
-		if vModel != "" {
-			model = vModel
-		}
-	}
+	_ = viper.BindPFlag("to", rootCmd.Flags().Lookup("to"))
+	_ = viper.BindPFlag("from", rootCmd.Flags().Lookup("from"))
+	_ = viper.BindPFlag("api-key", rootCmd.Flags().Lookup("api-key"))
+	_ = viper.BindPFlag("model", rootCmd.Flags().Lookup("model"))
+	_ = viper.BindPFlag("system", rootCmd.Flags().Lookup("system"))
+	_ = viper.BindPFlag("json", rootCmd.Flags().Lookup("json"))
+	_ = viper.BindPFlag("file", rootCmd.Flags().Lookup("file"))
+	_ = viper.BindPFlag("no-stream", rootCmd.Flags().Lookup("no-stream"))
+}
+
+func buildConfig() *Config {
+	toLang := viper.GetString("to")
 	if toLang == "" {
-		vtoLang := viper.GetString("to")
-		if vtoLang != "" {
-			toLang = vtoLang
+		toLang = defaultToLang
+	}
+
+	return &Config{
+		ToLang:   toLang,
+		FromLang: viper.GetString("from"),
+		APIKey:   viper.GetString("api-key"),
+		Model:    viper.GetString("model"),
+		System:   viper.GetString("system"),
+		Filepath: viper.GetString("file"),
+		AsJSON:   viper.GetBool("json"),
+		NoStream: viper.GetBool("no-stream"),
+	}
+}
+
+func readInputText(filepath string, args []string) (string, error) {
+	if filepath != "" {
+		file, err := os.Open(filepath)
+		if err != nil {
+			return "", fmt.Errorf("failed to open file %s: %w", filepath, err)
+		}
+		defer file.Close()
+
+		info, err := file.Stat()
+		if err != nil {
+			return "", fmt.Errorf("failed to get file info: %w", err)
+		}
+		if info.IsDir() {
+			return "", fmt.Errorf("%q is a directory", filepath)
+		}
+
+		// バイナリチェック
+		buffer := make([]byte, binaryCheckBufferSize)
+		n, err := file.Read(buffer)
+		if err != nil && err != io.EOF {
+			return "", fmt.Errorf("failed to read file: %w", err)
+		}
+
+		if bytes.IndexByte(buffer[:n], 0) != -1 {
+			return "", fmt.Errorf("binary files are not supported")
+		}
+
+		remaining, err := io.ReadAll(file)
+		if err != nil {
+			return "", fmt.Errorf("failed to read remaining file content: %w", err)
+		}
+		data := append(buffer[:n], remaining...)
+
+		if len(data) > maxFileSize {
+			fmt.Fprintln(os.Stderr, "WARNING: File is very large. It may take some time or reach API limits.")
+		}
+
+		if len(args) > 0 {
+			fmt.Fprintln(os.Stderr, "WARNING: Both file and direct text provided. Using file content.")
+		}
+
+		return string(data), nil
+	}
+
+	if len(args) < 1 {
+		return "", fmt.Errorf("please input the text to be translated or specify a file with -F")
+	}
+
+	return args[0], nil
+}
+
+func validateConfigAndInput(cfg *Config, inputText string) error {
+	if strings.Contains(cfg.FromLang, ".") || strings.Contains(cfg.FromLang, "/") || strings.Contains(cfg.FromLang, "\\") {
+		fmt.Fprintln(os.Stderr, "WARNING: -f is for source language. Did you mean -F for file path?")
+	}
+
+	if cfg.APIKey == "" {
+		return fmt.Errorf("API key is not configured")
+	}
+
+	if strings.TrimSpace(inputText) == "" {
+		return fmt.Errorf("input text is empty")
+	}
+
+	return nil
+}
+
+func executeTranslation(ctx context.Context, cfg *Config, inputText string) error {
+	client, err := translate.NewClient(ctx, cfg.APIKey, cfg.Model)
+	if err != nil {
+		return fmt.Errorf("failed to create translation client: %w", err)
+	}
+
+	if cfg.AsJSON || cfg.NoStream {
+		result, err := client.Translate(ctx, inputText, cfg.FromLang, cfg.ToLang, cfg.System)
+		if err != nil {
+			return fmt.Errorf("translation error: %w", err)
+		}
+		if cfg.AsJSON {
+			resp := TranslationResponse{
+				Source:     cfg.FromLang,
+				Target:     cfg.ToLang,
+				Input:      inputText,
+				Translated: result,
+				Model:      cfg.Model,
+			}
+			encoder := json.NewEncoder(os.Stdout)
+			encoder.SetIndent("", "  ")
+			if err := encoder.Encode(resp); err != nil {
+				return fmt.Errorf("failed to encode JSON response: %w", err)
+			}
 		} else {
-			toLang = "Japanese"
+			fmt.Print(result)
+		}
+	} else {
+		err = client.TranslateStream(ctx, os.Stdout, inputText, cfg.FromLang, cfg.ToLang, cfg.System)
+		if err != nil {
+			return fmt.Errorf("stream translation error: %w", err)
 		}
 	}
-	if fromLang == "" || fromLang == "auto" {
-		vfromLang := viper.GetString("from")
-		if vfromLang != "" {
-			fromLang = vfromLang
-		}
-	}
-	if system == "" {
-		system = viper.GetString("system")
-	}
-	if !asJson {
-		asJson = viper.GetBool("json")
-	}
+
+	fmt.Println()
+	return nil
 }
