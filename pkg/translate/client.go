@@ -21,7 +21,6 @@ Strictly follow these rules:
 - No explanations, no preamble, no self-introductions.`
 
 func NewClient(ctx context.Context, apiKey, model string) (*Client, error) {
-
 	client, err := genai.NewClient(ctx, &genai.ClientConfig{
 		APIKey: apiKey,
 	})
@@ -36,70 +35,35 @@ func NewClient(ctx context.Context, apiKey, model string) (*Client, error) {
 }
 
 func (c *Client) Translate(ctx context.Context, text, from, to, systemPrompt string) (string, error) {
-	baseSystemInstruction := defaultSystemInstruction
-	if systemPrompt != "" {
-		baseSystemInstruction = fmt.Sprintf("%s\n\n%s", baseSystemInstruction, systemPrompt)
-	}
+	prompt := c.buildUserPrompt(from, to, text)
+	config := c.buildGenerateConfig(systemPrompt, 0.2)
 
-	escapedText := strings.ReplaceAll(text, "\\n", "\n")
-	userPrompt := fmt.Sprintf("[%s -> %s]\n### INPUT ###\n%s\n### END ###", from, to, escapedText)
-
-	config := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: baseSystemInstruction}},
-		},
-		Temperature: pointer(0.2),
-	}
-
-	res, err := c.genaiClient.Models.GenerateContent(ctx, c.model, genai.Text(userPrompt), config)
+	res, err := c.genaiClient.Models.GenerateContent(ctx, c.model, genai.Text(prompt), config)
 	if err != nil {
 		return "", fmt.Errorf("generate content error: %w", err)
 	}
 
-	if len(res.Candidates) > 0 && res.Candidates[0].Content != nil {
-		var result strings.Builder
-		for _, part := range res.Candidates[0].Content.Parts {
-			if part.Text != "" {
-				result.WriteString(part.Text)
-			}
-		}
-		return result.String(), nil
-	}
-
-	return "", fmt.Errorf("no content generated")
+	return extractTextFromResponse(res)
 }
 
 func (c *Client) TranslateStream(ctx context.Context, w io.Writer, text, from, to, systemPrompt string) error {
-	baseSystemInstruction := defaultSystemInstruction
+	prompt := c.buildUserPrompt(from, to, text)
+	config := c.buildGenerateConfig(systemPrompt, 0.3)
 
-	// \n置換
-	escapedText := strings.ReplaceAll(text, "\\n", "\n")
-
-	if systemPrompt != "" {
-		baseSystemInstruction = fmt.Sprintf("%s\n\n%s", baseSystemInstruction, systemPrompt)
-	}
-
-	userPrompt := fmt.Sprintf("[%s -> %s]\n### INPUT ###\n%s\n### END ###", from, to, escapedText)
-
-	config := &genai.GenerateContentConfig{
-		SystemInstruction: &genai.Content{
-			Parts: []*genai.Part{{Text: baseSystemInstruction}},
-		},
-		Temperature: pointer(0.3),
-	}
-
-	iter := c.genaiClient.Models.GenerateContentStream(ctx, c.model, genai.Text(userPrompt), config)
+	iter := c.genaiClient.Models.GenerateContentStream(ctx, c.model, genai.Text(prompt), config)
 
 	for res, err := range iter {
 		if err != nil {
 			return fmt.Errorf("stream error: %w", err)
 		}
 
-		if len(res.Candidates) > 0 && res.Candidates[0].Content != nil {
-			for _, part := range res.Candidates[0].Content.Parts {
-				if part.Text != "" {
-					fmt.Fprint(w, part.Text)
-				}
+		if len(res.Candidates) == 0 || res.Candidates[0].Content == nil {
+			continue
+		}
+
+		for _, part := range res.Candidates[0].Content.Parts {
+			if part.Text != "" {
+				fmt.Fprint(w, part.Text)
 			}
 		}
 	}
@@ -107,6 +71,46 @@ func (c *Client) TranslateStream(ctx context.Context, w io.Writer, text, from, t
 	return nil
 }
 
-func pointer(f float32) *float32 {
-	return &f
+func (c *Client) buildUserPrompt(from, to, text string) string {
+	normalizedText := normalizeText(text)
+	return fmt.Sprintf("[%s -> %s]\n### INPUT ###\n%s\n### END ###", from, to, normalizedText)
+}
+
+func (c *Client) buildGenerateConfig(systemPrompt string, temperature float32) *genai.GenerateContentConfig {
+	instruction := defaultSystemInstruction
+	if systemPrompt != "" {
+		instruction = fmt.Sprintf("%s\n\n%s", instruction, systemPrompt)
+	}
+
+	return &genai.GenerateContentConfig{
+		SystemInstruction: &genai.Content{
+			Parts: []*genai.Part{{Text: instruction}},
+		},
+		Temperature: Ptr(temperature),
+	}
+}
+
+// エスケープされた改行を実際の改行に変換する
+func normalizeText(text string) string {
+	return strings.ReplaceAll(text, "\\n", "\n")
+}
+
+// 生成レスポンスから翻訳結果を抽出する
+func extractTextFromResponse(res *genai.GenerateContentResponse) (string, error) {
+	if len(res.Candidates) == 0 || res.Candidates[0].Content == nil {
+		return "", fmt.Errorf("no content generated")
+	}
+
+	var result strings.Builder
+	for _, part := range res.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			result.WriteString(part.Text)
+		}
+	}
+
+	return result.String(), nil
+}
+
+func Ptr[T any](v T) *T {
+	return &v
 }
