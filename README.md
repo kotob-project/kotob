@@ -42,43 +42,51 @@ kotob コマンドが認識されない場合は、以下のディレクトリ�
 chmod +x "kotob"
 ```
 
-
 # 準備 - Preparation
-kotob を使用するには、Gemini APIキーが必要です。 Google AI Studio でキーを取得し、環境変数 `KOTOB_API_KEY` に設定してください。  
+
+kotob を使用するには、Gemini APIキーが必要です。 Google AI Studio でキーを取得し、環境変数 `KOTOB_API_KEY` に設定してください。
+
 To use kotob, you need a Gemini API key. Obtain your key from Google AI Studio and set it as the environment variable `KOTOB_API_KEY`.
 
-モデルの選択などの詳細な設定は以下を参照してください。  
+モデルの選択などの詳細な設定は以下を参照してください。
+
 For detailed settings such as model selection, please refer to the following.
 
-<details>
-<summary>詳細設定について(Advanced settings)</summary>
-<br>
+・モデルについて
 
-・モデルについて  
+モデルは環境変数 `KOTOB_MODEL`に利用可能なGeminiのモデル名を指定することで変更できます。
 
-モデルは環境変数 `KOTOB_MODEL`に利用可能なGeminiのモデル名を指定することで変更できます。  
-デフォルトは`gemini-2.5-flash-lite`です。
+デフォルトは `gemini-2.5-flash-lite` です。
 
-・設定ファイルについて  
+・設定ファイルについて
+
+kotobが参照するのは実行ディレクトリの `kotob.json` と `~/.config/kotob/kotob.json` です。
+
+以下の形式で記述することで、フラグのデフォルト値や、設定ファイル専用の項目を指定できます。
+
 ```json
 {
-    "api-key" : "YOUR_API_KEY",
-    "model" : "GEMINI_MODEL_NAME",
-    "to" : "TARGET_LANGUAGE"
+    "api-key": "YOUR_API_KEY",
+    "to": "Japanese",
+    "from": "auto",
+    "model": "gemini-2.5-flash-lite",
+    "system": "",
+    "json": false,
+    "no-stream": false,
+    "explain": false,
+    "explain-lang": "Japanese",
+    "explain-model": "gemini-2.5-flash"
 }
 ```
-のような形式で記述し、各フラグのデフォルト値を指定できます。  
-kotobが参照するのは実行ディレクトリの `kotob.json` と `~/.config/kotob/kotob.json` です。  
 
-また値は
-1. コマンドライン引数(Flags)
-2. 環境変数
+> **Note:** `explain-lang` (解説出力時の言語) および `explain-model` (解説モード有効時の専用AIモデル) は、コマンドラインフラグからは指定できない設定ファイル専用のカスタマイズ項目です。
+
+値の適用は以下の順に優先されます。
+
+1. コマンドライン引数 (Flags)
+2. 環境変数 (Environment Variables)
 3. 実行ディレクトリの設定ファイル
-4. `~/.config/kotob/`の設定ファイル
-
-の順に優先されます。
-</details>
-<br>
+4. `~/.config/kotob/` の設定ファイル
 
 # 使い方 - Usage
 基本
@@ -106,35 +114,47 @@ kotob -t ja --json "Hello! How are you?"
 #   "translated": "こんにちは！お元気ですか？",
 #   "model": "gemini-2.5-flash-lite"
 # }
+
+```
+解説付き出力
+```bash
+kotob -e -t ja "Hello! How are you?"
+
+# こんにちは！お元気ですか？
+# ---
+# * 「Hello!」は一般的な挨拶なので「こんにちは！」と訳しました。
+# * 「How are you?」は相手の安否を尋ねる表現で、日本語では「お元気ですか？」が自然です。
 ```
 
 その他の機能は [フラグ - Flags](#フラグ---flags) を参照してください。
 
 # フラグ - Flags
 
-kotobの動作を制御するためのフラグです。  
+kotobの動作を制御するためのフラグです。
 
 | 短縮 | フルパス | 説明 | デフォルト値 |
-| :--- | :--- | :--- | :--- |
+| --- | --- | --- | --- |
 | `-k` | `--api-key` | Gemini API key | - |
 | `-t` | `--to` | 翻訳先の言語 (Target language) | `Japanese` |
 | `-f` | `--from` | 翻訳元の言語 (Source language) | `auto` |
-| `-F` | `--file` | ファイルの読み込み| - |
+| `-F` | `--file` | ファイルの読み込み | - |
 | `-s` | `--system` | AIへの指示/制約 (System Prompt) | - |
 | `-j` | `--json` | 出力結果を構造化データ(JSON)で取得 | `false` |
+| `-e` | `--explain` | 翻訳の補足説明を追加 | `false` |
 | `-m` | `--model` | 使用するAIモデルの指定 | `gemini-2.5-flash-lite` |
 | `-S` | `--no-stream` | ストリーミングを無効化し、一括出力する | `false` |
 | `-h` | `--help` | ヘルプを表示 | - |
 
+> 注意: `-e/--explain` を使う場合、`-m/--model` が明示指定されていればその値を優先します。そうでなければ、設定ファイル内の `explain-model` があればそれを使用し、なければ解説モード用のデフォルトモデル `gemini-2.5-flash` を使用します。
 
 **優先順位:** コマンド実行時に指定したフラグは、設定ファイル (`kotob.json`) や環境変数よりも優先して適用されます。
 
 # ライセンス - License
 
-**Apache License, Version 2.0** の下でライセンスされています。  
+**Apache License, Version 2.0** の下でライセンスされています。
 全文については [LICENSE](./LICENSE) を参照してください。
 
-Licensed under the **Apache License, Version 2.0**.  
+Licensed under the **Apache License, Version 2.0**.
 See [LICENSE](./LICENSE) for the full license text.
 
 # Special Thanks

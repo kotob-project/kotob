@@ -32,6 +32,7 @@ import (
 
 const (
 	defaultModel          = "gemini-2.5-flash-lite"
+	defaultExplainModel   = "gemini-2.5-flash"
 	defaultToLang         = "Japanese"
 	defaultFromLang       = "auto"
 	configName            = "kotob"
@@ -43,22 +44,25 @@ const (
 )
 
 type Config struct {
-	ToLang   string
-	FromLang string
-	APIKey   string
-	Model    string
-	System   string
-	Filepath string
-	AsJSON   bool
-	NoStream bool
+	ToLang      string
+	FromLang    string
+	APIKey      string
+	Model       string
+	System      string
+	Filepath    string
+	AsJSON      bool
+	NoStream    bool
+	Explain     bool
+	ExplainLang string
 }
 
 type TranslationResponse struct {
-	Source     string `json:"source"`
-	Target     string `json:"target"`
-	Input      string `json:"input"`
-	Translated string `json:"translated"`
-	Model      string `json:"model"`
+	Source      string `json:"source"`
+	Target      string `json:"target"`
+	Input       string `json:"input"`
+	Translated  string `json:"translated"`
+	Explanation string `json:"explanation,omitempty"`
+	Model       string `json:"model"`
 }
 
 var rootCmd = &cobra.Command{
@@ -70,6 +74,7 @@ leveraging the Google Gemini API for fast and accurate translations.`,
 	Args: cobra.ArbitraryArgs,
 	RunE: func(cmd *cobra.Command, args []string) error {
 		cfg := buildConfig()
+		cfg.Model = resolveModel(cfg.Model, cfg.Explain, cmd.Flags().Changed("model"))
 
 		inputText, err := readInputText(cfg.Filepath, args)
 		if err != nil {
@@ -96,9 +101,10 @@ func init() {
 	rootCmd.Flags().StringP("to", "t", defaultToLang, "target language")
 	rootCmd.Flags().StringP("from", "f", defaultFromLang, "source language")
 	rootCmd.Flags().StringP("api-key", "k", "", "Gemini API key for the session")
-	rootCmd.Flags().StringP("model", "m", defaultModel, "AI model to use")
+	rootCmd.Flags().StringP("model", "m", defaultModel, "override AI model to use")
 	rootCmd.Flags().StringP("system", "s", "", "custom system prompt for the AI")
 	rootCmd.Flags().BoolP("json", "j", false, "output result as a JSON object")
+	rootCmd.Flags().BoolP("explain", "e", false, "append explanation/notes to translation (uses gemini-3.1-flash by default)")
 	rootCmd.Flags().StringP("file", "F", "", "path to the text file to translate")
 	rootCmd.Flags().BoolP("no-stream", "S", false, "Outputs translations in bulk")
 
@@ -125,6 +131,7 @@ func initConfig() {
 	_ = viper.BindPFlag("model", rootCmd.Flags().Lookup("model"))
 	_ = viper.BindPFlag("system", rootCmd.Flags().Lookup("system"))
 	_ = viper.BindPFlag("json", rootCmd.Flags().Lookup("json"))
+	_ = viper.BindPFlag("explain", rootCmd.Flags().Lookup("explain"))
 	_ = viper.BindPFlag("file", rootCmd.Flags().Lookup("file"))
 	_ = viper.BindPFlag("no-stream", rootCmd.Flags().Lookup("no-stream"))
 }
@@ -135,16 +142,44 @@ func buildConfig() *Config {
 		toLang = defaultToLang
 	}
 
-	return &Config{
-		ToLang:   toLang,
-		FromLang: viper.GetString("from"),
-		APIKey:   viper.GetString("api-key"),
-		Model:    viper.GetString("model"),
-		System:   viper.GetString("system"),
-		Filepath: viper.GetString("file"),
-		AsJSON:   viper.GetBool("json"),
-		NoStream: viper.GetBool("no-stream"),
+	explainLang := viper.GetString("explain-lang")
+	if explainLang == "" {
+		explainLang = "Japanese"
 	}
+
+	return &Config{
+		ToLang:      toLang,
+		FromLang:    viper.GetString("from"),
+		APIKey:      viper.GetString("api-key"),
+		Model:       viper.GetString("model"),
+		System:      viper.GetString("system"),
+		Filepath:    viper.GetString("file"),
+		AsJSON:      viper.GetBool("json"),
+		NoStream:    viper.GetBool("no-stream"),
+		Explain:     viper.GetBool("explain"),
+		ExplainLang: explainLang,
+	}
+}
+
+func resolveModel(baseModel string, explain bool, modelFlagExplicit bool) string {
+	if modelFlagExplicit {
+		if baseModel != "" {
+			return baseModel
+		}
+		return defaultModel
+	}
+
+	if explain {
+		if configExplainModel := viper.GetString("explain-model"); configExplainModel != "" {
+			return configExplainModel
+		}
+		return defaultExplainModel
+	}
+
+	if baseModel != "" {
+		return baseModel
+	}
+	return defaultModel
 }
 
 func readInputText(filepath string, args []string) (string, error) {
@@ -163,7 +198,6 @@ func readInputText(filepath string, args []string) (string, error) {
 			return "", fmt.Errorf("%q is a directory", filepath)
 		}
 
-		// バイナリチェック
 		buffer := make([]byte, binaryCheckBufferSize)
 		n, err := file.Read(buffer)
 		if err != nil && err != io.EOF {
@@ -221,17 +255,19 @@ func executeTranslation(ctx context.Context, cfg *Config, inputText string) erro
 	}
 
 	if cfg.AsJSON || cfg.NoStream {
-		result, err := client.Translate(ctx, inputText, cfg.FromLang, cfg.ToLang, cfg.System)
+		result, err := client.Translate(ctx, inputText, cfg.FromLang, cfg.ToLang, cfg.System, cfg.Explain, cfg.ExplainLang)
 		if err != nil {
 			return fmt.Errorf("translation error: %w", err)
 		}
+		translated, explanation := splitTranslationAndExplanation(result, cfg.Explain)
 		if cfg.AsJSON {
 			resp := TranslationResponse{
-				Source:     cfg.FromLang,
-				Target:     cfg.ToLang,
-				Input:      inputText,
-				Translated: result,
-				Model:      cfg.Model,
+				Source:      cfg.FromLang,
+				Target:      cfg.ToLang,
+				Input:       inputText,
+				Translated:  translated,
+				Explanation: explanation,
+				Model:       cfg.Model,
 			}
 			encoder := json.NewEncoder(os.Stdout)
 			encoder.SetIndent("", "  ")
@@ -242,7 +278,7 @@ func executeTranslation(ctx context.Context, cfg *Config, inputText string) erro
 			fmt.Print(result)
 		}
 	} else {
-		err = client.TranslateStream(ctx, os.Stdout, inputText, cfg.FromLang, cfg.ToLang, cfg.System)
+		err = client.TranslateStream(ctx, os.Stdout, inputText, cfg.FromLang, cfg.ToLang, cfg.System, cfg.Explain, cfg.ExplainLang)
 		if err != nil {
 			return fmt.Errorf("stream translation error: %w", err)
 		}
@@ -250,4 +286,26 @@ func executeTranslation(ctx context.Context, cfg *Config, inputText string) erro
 
 	fmt.Println()
 	return nil
+}
+
+func splitTranslationAndExplanation(result string, explain bool) (string, string) {
+	if !explain {
+		return result, ""
+	}
+
+	normalized := strings.TrimSpace(result)
+	if normalized == "" {
+		return "", ""
+	}
+
+	lines := strings.Split(normalized, "\n")
+	for idx, line := range lines {
+		if strings.TrimSpace(line) == "---" {
+			translated := strings.TrimSpace(strings.Join(lines[:idx], "\n"))
+			explanation := strings.TrimSpace(strings.Join(lines[idx+1:], "\n"))
+			return translated, explanation
+		}
+	}
+
+	return normalized, ""
 }
